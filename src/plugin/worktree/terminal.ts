@@ -680,29 +680,33 @@ export async function openMacOSTerminal(cwd: string, argv?: string[]): Promise<T
 
 			case "warp": {
 				// Warp on macOS does not support AppleScript, the warp://launch/ URL
-				// scheme (Linux-only), or CLI args for opening tabs. The only reliable
-				// way to open a new tab with a specific command + working directory is
-				// System Events: activate Warp, open a new tab (Cmd+T), type the
-				// command, and press Enter. No temp script needed — the command runs
-				// in Warp's own shell, so there's no exec bash/$SHELL issue either.
-				const fullCommand = command
-					? `cd "${escapedCwd}" && ${command}`
-					: `cd "${escapedCwd}"`
-				const escapedCommand = escapeAppleScript(fullCommand)
-				const appleScript = `
-tell application "Warp" to activate
-delay 0.5
-tell application "System Events"
-	keystroke "t" using command down
-	delay 0.5
-	keystroke "${escapedCommand}"
-	key code 36
-end tell`
+				// scheme (Linux-only), or CLI args for opening tabs. However, `open -a
+				// Warp.app scriptPath` does reliably execute a script file in a new
+				// Warp window/tab. The script self-cleans via trap.
+				// (Note: `open -b dev.warp.Warp-Stable scriptPath` does NOT work — it
+				// opens the file but doesn't execute it.)
+				detachedScriptPath = path.join(
+					getTempDir(),
+					`worktree-${Date.now()}-${Math.random().toString(36).slice(2)}.sh`,
+				)
+				await Bun.write(detachedScriptPath, scriptContent)
+				await fs.chmod(detachedScriptPath, 0o755)
 
 				try {
-					Bun.spawnSync(["osascript", "-e", appleScript])
+					const warpProc = Bun.spawn(["open", "-a", "Warp.app", detachedScriptPath], {
+						detached: true,
+						stdio: ["ignore", "ignore", "ignore"],
+					})
+					warpProc.unref()
+					detachedScriptPath = null // Clear on success - script will self-clean
 					return { success: true }
 				} catch (error) {
+					// Clean up orphaned script on error
+					try {
+						await fs.rm(detachedScriptPath)
+					} catch {
+						// Best-effort cleanup
+					}
 					return {
 						success: false,
 						error: `Failed to open Warp: ${error instanceof Error ? error.message : String(error)}`,
