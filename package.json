@@ -1,0 +1,34 @@
+{
+  "name": "@ykaratkou/opencode-worktree",
+  "version": "0.1.1",
+  "description": "Git worktrees that spawn their own terminal. Zero-friction isolation for AI-driven development.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build ./src/plugin/worktree.ts --outfile dist/index.js --target bun --external @opencode-ai/plugin --external @opencode-ai/sdk --external bun:sqlite",
+    "dev": "bun build ./src/plugin/worktree.ts --outfile dist/index.js --target bun --external @opencode-ai/plugin --external @opencode-ai/sdk --external bun:sqlite --watch"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.17.9",
+    "@opencode-ai/sdk": "^1.17.8",
+    "jsonc-parser": "^3.3.1",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

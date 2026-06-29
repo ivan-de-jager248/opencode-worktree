@@ -572,7 +572,7 @@ export async function openMacOSTerminal(cwd: string, argv?: string[]): Promise<T
 	const escapedCwd = escapeBash(cwd)
 	const command = buildBashCommandFromArgv(argv)
 	const scriptContent = wrapWithSelfCleanup(
-		command ? `cd "${escapedCwd}" && ${command}\nexec bash` : `cd "${escapedCwd}"\nexec bash`,
+		command ? `cd "${escapedCwd}" && ${command}\nexec $SHELL` : `cd "${escapedCwd}"\nexec $SHELL`,
 	)
 
 	const terminal = detectCurrentMacTerminal()
@@ -679,21 +679,44 @@ export async function openMacOSTerminal(cwd: string, argv?: string[]): Promise<T
 			}
 
 			case "warp": {
-				// Detached spawn - write script directly
-				detachedScriptPath = path.join(
-					getTempDir(),
-					`worktree-${Date.now()}-${Math.random().toString(36).slice(2)}.sh`,
-				)
-				await Bun.write(detachedScriptPath, scriptContent)
-				await fs.chmod(detachedScriptPath, 0o755)
+				// Use Warp's native warp://launch/ URL scheme with a YAML launch config.
+				// This is the same approach used by the Linux Warp path and is more
+				// reliable than `open -b dev.warp.Warp-Stable scriptPath`, which opens
+				// the .sh file in Warp but does not reliably execute it in the correct
+				// working directory.
+				const configName = `worktree-${Date.now()}-${Math.random().toString(36).slice(2)}`
+				const configDir = getWarpLaunchConfigDir()
+				const configPath = path.join(configDir, `${configName}.yaml`)
+				const configContent = buildWarpLaunchConfigYaml(configName, cwd, configPath, command)
 
-				const warpProc = Bun.spawn(["open", "-b", "dev.warp.Warp-Stable", detachedScriptPath], {
-					detached: true,
-					stdio: ["ignore", "ignore", "ignore"],
-				})
-				warpProc.unref()
-				detachedScriptPath = null // Clear on success - script will self-clean
-				return { success: true }
+				await fs.mkdir(configDir, { recursive: true })
+				await Bun.write(configPath, configContent)
+
+				// `open warp://launch/...` tells Warp to open a new tab/window using the
+				// launch config. The config's cleanup command removes the YAML file after
+				// the command runs.
+				try {
+					const warpProc = Bun.spawn(
+						["open", `warp://launch/${encodeURIComponent(configName)}`],
+						{
+							detached: true,
+							stdio: ["ignore", "ignore", "ignore"],
+						},
+					)
+					warpProc.unref()
+					return { success: true }
+				} catch (error) {
+					// Clean up orphaned config on error
+					try {
+						await fs.rm(configPath)
+					} catch {
+						// Best-effort cleanup
+					}
+					return {
+						success: false,
+						error: `Failed to open Warp: ${error instanceof Error ? error.message : String(error)}`,
+					}
+				}
 			}
 
 			// iTerm uses AppleScript `write text` which returns before execution completes.
@@ -817,7 +840,7 @@ export async function openLinuxTerminal(cwd: string, argv?: string[]): Promise<T
 	const escapedCwd = escapeBash(cwd)
 	const command = buildBashCommandFromArgv(argv)
 	const scriptContent = wrapWithSelfCleanup(
-		command ? `cd "${escapedCwd}" && ${command}\nexec bash` : `cd "${escapedCwd}"\nexec bash`,
+		command ? `cd "${escapedCwd}" && ${command}\nexec $SHELL` : `cd "${escapedCwd}"\nexec $SHELL`,
 	)
 
 	let scriptPath: string | null = null
@@ -1192,7 +1215,7 @@ export async function openWSLTerminal(cwd: string, argv?: string[]): Promise<Ter
 	const escapedCwd = escapeBash(cwd)
 	const command = buildBashCommandFromArgv(argv)
 	const scriptContent = wrapWithSelfCleanup(
-		command ? `cd "${escapedCwd}" && ${command}\nexec bash` : `cd "${escapedCwd}"\nexec bash`,
+		command ? `cd "${escapedCwd}" && ${command}\nexec $SHELL` : `cd "${escapedCwd}"\nexec $SHELL`,
 	)
 
 	// Write script directly - it self-deletes via trap
