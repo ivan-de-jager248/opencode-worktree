@@ -679,39 +679,28 @@ export async function openMacOSTerminal(cwd: string, argv?: string[]): Promise<T
 			}
 
 			case "warp": {
-				// Use Warp's native warp://launch/ URL scheme with a YAML launch config.
-				// This is the same approach used by the Linux Warp path and is more
-				// reliable than `open -b dev.warp.Warp-Stable scriptPath`, which opens
-				// the .sh file in Warp but does not reliably execute it in the correct
-				// working directory.
-				const configName = `worktree-${Date.now()}-${Math.random().toString(36).slice(2)}`
-				const configDir = getWarpLaunchConfigDir()
-				const configPath = path.join(configDir, `${configName}.yaml`)
-				const configContent = buildWarpLaunchConfigYaml(configName, cwd, configPath, command)
+				// Warp on macOS does not support AppleScript, the warp://launch/ URL
+				// scheme (Linux-only), or CLI args for opening tabs. The only reliable
+				// way to open a new tab with a specific command + working directory is
+				// System Events keystroke injection: activate Warp, type the command,
+				// and press Enter. No temp script needed — the command runs in Warp's
+				// own shell, so there's no exec bash/$SHELL issue either.
+				const fullCommand = command
+					? `cd "${escapedCwd}" && ${command}`
+					: `cd "${escapedCwd}"`
+				const escapedCommand = escapeAppleScript(fullCommand)
+				const appleScript = `
+tell application "Warp" to activate
+delay 0.5
+tell application "System Events"
+	keystroke "${escapedCommand}"
+	key code 36
+end tell`
 
-				await fs.mkdir(configDir, { recursive: true })
-				await Bun.write(configPath, configContent)
-
-				// `open warp://launch/...` tells Warp to open a new tab/window using the
-				// launch config. The config's cleanup command removes the YAML file after
-				// the command runs.
 				try {
-					const warpProc = Bun.spawn(
-						["open", `warp://launch/${encodeURIComponent(configName)}`],
-						{
-							detached: true,
-							stdio: ["ignore", "ignore", "ignore"],
-						},
-					)
-					warpProc.unref()
+					Bun.spawnSync(["osascript", "-e", appleScript])
 					return { success: true }
 				} catch (error) {
-					// Clean up orphaned config on error
-					try {
-						await fs.rm(configPath)
-					} catch {
-						// Best-effort cleanup
-					}
 					return {
 						success: false,
 						error: `Failed to open Warp: ${error instanceof Error ? error.message : String(error)}`,
