@@ -682,9 +682,9 @@ export async function openMacOSTerminal(cwd: string, argv?: string[]): Promise<T
 				// Warp on macOS does not support AppleScript, the warp://launch/ URL
 				// scheme (Linux-only), or CLI args for opening tabs. The only reliable
 				// way to open a new tab with a specific command + working directory is
-				// System Events keystroke injection: activate Warp, type the command,
-				// and press Enter. No temp script needed — the command runs in Warp's
-				// own shell, so there's no exec bash/$SHELL issue either.
+				// System Events: activate Warp, open a new tab (Cmd+T), type the
+				// command, and press Enter. No temp script needed — the command runs
+				// in Warp's own shell, so there's no exec bash/$SHELL issue either.
 				const fullCommand = command
 					? `cd "${escapedCwd}" && ${command}`
 					: `cd "${escapedCwd}"`
@@ -693,6 +693,8 @@ export async function openMacOSTerminal(cwd: string, argv?: string[]): Promise<T
 tell application "Warp" to activate
 delay 0.5
 tell application "System Events"
+	keystroke "t" using command down
+	delay 0.5
 	keystroke "${escapedCommand}"
 	key code 36
 end tell`
